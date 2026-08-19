@@ -6,7 +6,7 @@ BookNest is a MERN stack web application that allows users to manage a catalog o
 The project is currently **under development** and is designed to align with professional development standards.
 
 ## Project Status
-🚧 **Under Development** - Core architecture is planned and implementation is underway.
+🚧 **Under Development** - Project documentation and planning are complete. Implementation will begin next.
 
 ## Core Features (Planned)
 * **User Authentication**: Secure signup and login with password hashing.
