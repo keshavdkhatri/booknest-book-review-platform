@@ -1,13 +1,21 @@
-import React, { useEffect, useState } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import React, { useEffect, useState, useContext } from 'react';
+import { useParams, useNavigate, Link } from 'react-router-dom';
+import { AuthContext } from '../context/AuthContext';
 import api from '../services/api';
 
 const BookDetails = () => {
   const { id } = useParams();
+  const navigate = useNavigate();
+  const { user } = useContext(AuthContext);
+
   const [book, setBook] = useState(null);
   const [reviews, setReviews] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+
+  // Delete states
+  const [deleteBookLoading, setDeleteBookLoading] = useState(false);
+  const [deletingReviewId, setDeletingReviewId] = useState(null);
 
   useEffect(() => {
     const fetchBookAndReviews = async () => {
@@ -31,6 +39,47 @@ const BookDetails = () => {
     fetchBookAndReviews();
   }, [id]);
 
+  // Handle Book Deletion
+  const handleDeleteBook = async () => {
+    if (!window.confirm('Are you sure you want to delete this book? This will permanently remove all associated reviews.')) {
+      return;
+    }
+
+    setDeleteBookLoading(true);
+    setError('');
+
+    try {
+      await api.delete(`/books/${id}`);
+      // Redirect to Home catalog page on success
+      navigate('/');
+    } catch (err) {
+      console.error('Error deleting book:', err);
+      const msg = err.response?.data?.message || 'Failed to delete book. Please try again.';
+      setError(msg);
+      setDeleteBookLoading(false);
+    }
+  };
+
+  // Handle Review Deletion
+  const handleDeleteReview = async (reviewId) => {
+    if (!window.confirm('Are you sure you want to delete your review?')) {
+      return;
+    }
+
+    setDeletingReviewId(reviewId);
+
+    try {
+      await api.delete(`/reviews/${reviewId}`);
+      // State updates: remove from state immediately
+      setReviews((prevReviews) => prevReviews.filter((r) => r._id !== reviewId));
+    } catch (err) {
+      console.error('Error deleting review:', err);
+      alert(err.response?.data?.message || 'Failed to delete review. Please try again.');
+    } finally {
+      setDeletingReviewId(null);
+    }
+  };
+
   if (loading) {
     return (
       <div style={{ textAlign: 'center', marginTop: '50px' }}>
@@ -39,7 +88,7 @@ const BookDetails = () => {
     );
   }
 
-  if (error) {
+  if (error && !book) {
     return (
       <div style={{ color: 'red', textAlign: 'center', marginTop: '50px', backgroundColor: '#fff2f0', border: '1px solid #ffccc7', padding: '20px', borderRadius: '4px', maxWidth: '600px', margin: '50px auto' }}>
         <h3>Error Loading Book</h3>
@@ -59,11 +108,52 @@ const BookDetails = () => {
     );
   }
 
+  // Resolve ownership flags
+  const isBookOwner = user && book && book.owner && (book.owner._id === user._id || book.owner === user._id);
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '30px' }}>
-      {/* Back Link */}
-      <div>
+      {/* Header Back & Edit/Delete Controls */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <Link to="/" style={{ color: '#1890ff', textDecoration: 'none', fontWeight: 'bold' }}>← Back to Catalog</Link>
+        
+        {isBookOwner && (
+          <div style={{ display: 'flex', gap: '10px' }}>
+            <Link 
+              to={`/books/${book._id}/edit`} 
+              style={{ 
+                padding: '6px 12px', 
+                backgroundColor: '#f5f5f5', 
+                border: '1px solid #d9d9d9', 
+                borderRadius: '4px', 
+                textDecoration: 'none', 
+                color: '#333', 
+                fontWeight: 'bold', 
+                fontSize: '13px',
+                pointerEvents: deleteBookLoading ? 'none' : 'auto',
+                opacity: deleteBookLoading ? 0.6 : 1
+              }}
+            >
+              Edit Book
+            </Link>
+            <button 
+              onClick={handleDeleteBook} 
+              disabled={deleteBookLoading}
+              style={{ 
+                padding: '6px 12px', 
+                backgroundColor: '#ff4d4f', 
+                color: '#fff', 
+                border: 'none', 
+                borderRadius: '4px', 
+                fontWeight: 'bold', 
+                fontSize: '13px', 
+                cursor: deleteBookLoading ? 'not-allowed' : 'pointer' 
+              }}
+            >
+              {deleteBookLoading ? 'Deleting...' : 'Delete Book'}
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Book Metadata Information Card */}
@@ -109,25 +199,50 @@ const BookDetails = () => {
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
-            {reviews.map((review, index) => (
-              <div 
-                key={review._id} 
-                style={{ 
-                  borderBottom: index === reviews.length - 1 ? 'none' : '1px solid #f0f0f0', 
-                  paddingBottom: index === reviews.length - 1 ? '0' : '15px',
-                  marginBottom: index === reviews.length - 1 ? '0' : '5px'
-                }}
-              >
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', alignItems: 'center' }}>
-                  <span style={{ fontWeight: 'bold', color: '#262626' }}>{review.user?.username || 'Anonymous'}</span>
-                  <span style={{ color: '#fadb14', fontSize: '16px', fontWeight: 'bold' }}>
-                    {'★'.repeat(review.rating)}{'☆'.repeat(5 - review.rating)}
-                    <span style={{ marginLeft: '5px', color: '#595959', fontSize: '14px', fontWeight: 'normal' }}>({review.rating}/5)</span>
-                  </span>
+            {reviews.map((review, index) => {
+              const isReviewAuthor = user && review.user && (review.user._id === user._id || review.user === user._id);
+              const isDeletingThisReview = deletingReviewId === review._id;
+
+              return (
+                <div 
+                  key={review._id} 
+                  style={{ 
+                    borderBottom: index === reviews.length - 1 ? 'none' : '1px solid #f0f0f0', 
+                    paddingBottom: index === reviews.length - 1 ? '0' : '15px',
+                    marginBottom: index === reviews.length - 1 ? '0' : '5px'
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', alignItems: 'center' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column' }}>
+                      <span style={{ fontWeight: 'bold', color: '#262626' }}>{review.user?.username || 'Anonymous'}</span>
+                      <span style={{ color: '#fadb14', fontSize: '16px', fontWeight: 'bold', marginTop: '2px' }}>
+                        {'★'.repeat(review.rating)}{'☆'.repeat(5 - review.rating)}
+                        <span style={{ marginLeft: '5px', color: '#595959', fontSize: '14px', fontWeight: 'normal' }}>({review.rating}/5)</span>
+                      </span>
+                    </div>
+                    {isReviewAuthor && (
+                      <button
+                        onClick={() => handleDeleteReview(review._id)}
+                        disabled={deletingReviewId !== null}
+                        style={{
+                          padding: '4px 8px',
+                          backgroundColor: '#ff7875',
+                          color: '#fff',
+                          border: 'none',
+                          borderRadius: '4px',
+                          cursor: deletingReviewId !== null ? 'not-allowed' : 'pointer',
+                          fontSize: '12px',
+                          fontWeight: 'bold'
+                        }}
+                      >
+                        {isDeletingThisReview ? 'Deleting...' : 'Delete'}
+                      </button>
+                    )}
+                  </div>
+                  <p style={{ margin: '0', lineHeight: '1.5', color: '#434343' }}>{review.reviewText}</p>
                 </div>
-                <p style={{ margin: '0', lineHeight: '1.5', color: '#434343' }}>{review.reviewText}</p>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
